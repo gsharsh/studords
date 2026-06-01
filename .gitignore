@@ -1,0 +1,14 @@
+.DS_Store
+.venv/
+.matplotlib_cache/
+__pycache__/
+*.pyc
+outputs/
+data/
+dataset/
+task/
+!reports/
+!reports/*.pdf
+!reports/*.docx
+!reports/figures/
+!reports/figures/*.png
