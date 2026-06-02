@@ -1,8 +1,8 @@
 # Studor PathAI DS Screening Project
 
-Baseline implementation for the Studor PathAI take-home assessment using the Open University Learning Analytics Dataset (OULAD).
+Submission-ready implementation for the Studor PathAI take-home assessment using the Open University Learning Analytics Dataset (OULAD).
 
-Evidence-led pipeline covering three product tasks: weekly engagement scoring, Week 6 disengagement intervention tiers, and next-module recommendations.
+The project is intentionally notebook-first: the notebooks show the data cleaning, feature reasoning, model selection evidence, and recommendation evaluation, while `src/` keeps the reusable pipeline code clean and reproducible.
 
 ## Project Structure
 
@@ -44,9 +44,9 @@ The first run takes a few minutes because `studentVle.csv` has 10M+ rows.
 
 ## Workflow
 
-1. **`src/run_pipeline.py`** — regenerates all outputs, figures, PDF, and Word report.
-2. **Notebooks** — narrative walkthroughs that rebuild the key tables, show EDA, justify features, and compare models.
-3. **`reports/`** — submission deliverables (figures + reports).
+1. **Notebooks** — main evidence trail for the assignment. They show EDA, assumptions, feature justification, model selection, and evaluation.
+2. **`src/run_pipeline.py`** — reproducible pipeline entry point. It regenerates outputs, figures, PDF, and Word report from the raw OULAD CSVs.
+3. **`reports/`** — final submission artifacts: the 6-page PDF report, editable Word report, and figures.
 
 ## What This Builds
 
@@ -60,7 +60,7 @@ The first run takes a few minutes because `studentVle.csv` has 10M+ rows.
 
 - Binary classifier: Withdrawn/Fail vs Pass/Distinction using only Week ≤6 features.
 - Model-selection evidence compared Logistic Regression, Random Forest, XGBoost, and regularized XGBoost.
-- Based on that comparison table, the production pipeline now trains **XGBoost only**: it had the best validation F1 (0.787) and recall (0.842), with competitive ROC-AUC (0.863) and PR-AUC (0.895).
+- Based on that comparison table, the production pipeline trains **XGBoost only**: it had the best validation F1 (0.787) and recall (0.842), with competitive ROC-AUC (0.863) and PR-AUC (0.895).
 - Converts predicted risk into operational tiers instead of calling most students “urgent.”
 - Uses top 20% risk as a high-touch advisor support queue, the next 40% for light-touch behavioural nudges, and the remainder for monitoring.
 - Headline metrics: ROC-AUC 0.870, high-touch precision 0.991, top-60% light-touch F1 0.793, and top-60% light-touch recall 0.848.
@@ -105,6 +105,24 @@ The loader also checks `dataset/` if `data/` is absent.
 - `Studor_PathAI_Report.docx` — detailed technical report
 
 Regenerate Word only: `.venv/bin/python src/write_word_report.py`
+
+## Submission Checklist
+
+- Run the three notebooks from top to bottom if you want the full analytical walkthrough.
+- Run `.venv/bin/python src/run_pipeline.py` to reproduce all generated outputs and reports.
+- Submit the GitHub repo without raw OULAD CSVs, `outputs/`, `.venv/`, or `task/`.
+- Attach [reports/Studor_PathAI_Report.pdf](reports/Studor_PathAI_Report.pdf) as the 6-page PDF report.
+- Use [reports/Studor_PathAI_Report.docx](reports/Studor_PathAI_Report.docx) if final manual editing is needed before export.
+
+## Walkthrough Video Guide
+
+Suggested 10-minute structure:
+
+1. **Project framing** — PathAI turns OULAD clickstream, assessment, and profile data into engagement scores, risk tiers, and next-module recommendations.
+2. **Task 1** — show the six feature buckets, Week 6 score validation, and archetype trajectory charts.
+3. **Task 2** — explain leakage-safe Week 6 modelling, why XGBoost was selected, and why the output is tiered to avoid alert fatigue.
+4. **Task 3** — compare collaborative filtering with the shared feature-space content model and explain the cold-start strategy.
+5. **Reflection** — one key decision: turning model risk into intervention tiers; one next step: live advisor feedback and subgroup calibration.
 
 ## Latest Results
 
