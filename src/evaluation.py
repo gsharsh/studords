@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from typing import Any
+from xml.sax.saxutils import escape
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sklearn.metrics import ConfusionMatrixDisplay
 
@@ -227,15 +229,34 @@ def plot_task2_behavioral_correlation_heatmap(model_df: pd.DataFrame) -> None:
     plt.close()
 
 
-def make_table(data: list[list[Any]], font_size: int = 8) -> Table:
-    table = Table(data, repeatRows=1)
+def make_table(data: list[list[Any]], font_size: int = 8, col_widths: list[float] | None = None) -> Table:
+    cell_style = ParagraphStyle(
+        "table_cell",
+        fontName="Helvetica",
+        fontSize=font_size,
+        leading=font_size + 2,
+        wordWrap="CJK",
+    )
+    header_style = ParagraphStyle(
+        "table_header",
+        parent=cell_style,
+        fontName="Helvetica-Bold",
+    )
+    wrapped = []
+    for i, row in enumerate(data):
+        style = header_style if i == 0 else cell_style
+        wrapped.append([Paragraph(escape(str(value)), style) for value in row])
+    table = Table(wrapped, repeatRows=1, colWidths=col_widths)
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                ("FONTSIZE", (0, 0), (-1, -1), font_size),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -270,29 +291,139 @@ def write_report(
         story.append(Paragraph(text, styles["BodyText"]))
         story.append(Spacer(1, 6))
 
+    def report_header(canvas: Any, doc_obj: Any) -> None:
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.setFillColor(colors.HexColor("#173B63"))
+        canvas.drawString(36, 760, "PathAI Engine")
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#6B7280"))
+        canvas.drawRightString(576, 760, "Studor DS Screening")
+        canvas.setStrokeColor(colors.HexColor("#D1D5DB"))
+        canvas.line(36, 752, 576, 752)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawCentredString(306, 20, f"PathAI Engine | OULAD Screening Assessment | Page {doc_obj.page}")
+        canvas.restoreState()
+
+    title_style = ParagraphStyle(
+        "report_title",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor("#173B63"),
+        spaceAfter=2,
+    )
+    subtitle_style = ParagraphStyle(
+        "report_subtitle",
+        parent=styles["BodyText"],
+        fontSize=10,
+        leading=13,
+        textColor=colors.HexColor("#6B7280"),
+        spaceAfter=8,
+    )
+    task_style = ParagraphStyle(
+        "task_heading",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        leading=15,
+        textColor=colors.HexColor("#173B63"),
+        spaceBefore=8,
+        spaceAfter=4,
+    )
+    compact_body = ParagraphStyle(
+        "compact_body",
+        parent=styles["BodyText"],
+        fontSize=9,
+        leading=12,
+        spaceAfter=4,
+    )
+    metric_value_style = ParagraphStyle(
+        "metric_value",
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#173B63"),
+    )
+    metric_label_style = ParagraphStyle(
+        "metric_label",
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        leading=9,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#6B7280"),
+    )
+
+    def metric_strip(metrics: list[tuple[str, str]], fill: str) -> Table:
+        cells = []
+        for value, label in metrics:
+            cells.append([Paragraph(value, metric_value_style), Paragraph(label, metric_label_style)])
+        table = Table([cells], colWidths=[500 / len(metrics)] * len(metrics))
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(fill)),
+                    ("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#D1D5DB")),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.8, colors.HexColor("#D1D5DB")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        return table
+
     primary = model_result["primary_metrics"]
     watchlist = model_result["watchlist_metrics"]
     intervention_tiers = model_result["intervention_tiers"]
 
-    heading("Executive Summary")
-    body("This report presents a production-oriented PathAI prototype built on one semester of OULAD data. The system combines three outputs: a weekly engagement score, a Week 6 disengagement model, and a next-course recommendation engine.")
-    body("Task 1 produces a dynamic 0-100 engagement score from behavior and assessment signals. Task 2 predicts Withdrawn/Fail versus Pass/Distinction using only Week <= 6 information and converts risk into intervention tiers. Task 3 recommends top-3 modules using both collaborative filtering and a shared feature-space content model.")
-    summary_rows = [
-        ["Metric", "Result"],
-        ["Task 2 model", "XGBoost (selected from comparison table)"],
-        ["High-touch precision", f"{primary['precision']:.3f}"],
-        ["High-touch recall", f"{primary['recall']:.3f}"],
-        ["High-touch F1", f"{primary['f1']:.3f}"],
-        ["ROC-AUC", f"{primary['roc_auc']:.3f}"],
-        ["PR-AUC", f"{primary['pr_auc']:.3f}"],
-        ["High-touch queue share", f"{primary['alert_rate']:.1%}"],
-        ["Top-60% recall", f"{watchlist['recall']:.3f}"],
-        ["Task 3 content hit@3", f"{recommender_metrics['content_hit_rate_at_3']:.3f}"],
-        ["Task 3 CF hit@3", f"{recommender_metrics['cf_hit_rate_at_3']:.3f}"],
-    ]
-    story.append(make_table(summary_rows, font_size=8))
-    body("Result: the system is statistically credible and operationally actionable. It is intentionally framed for deployment as decision support, not autonomous intervention.")
-    story.append(Image(str(FIG_DIR / "outcome_eda.png"), width=500, height=180))
+    story.append(Paragraph("PathAI Engine - Assessment Report", title_style))
+    story.append(Paragraph("Open University Learning Analytics Dataset (OULAD) | Engagement scoring, Week 6 risk prediction, and course recommendation", subtitle_style))
+    story.append(Paragraph("This report summarises a production-oriented PathAI prototype built to help universities understand engagement trajectories, identify students needing support by Week 6, and recommend suitable next modules. Each task produces an actionable product output rather than a standalone research result.", compact_body))
+
+    story.append(Paragraph("Task 1 - Behavioral Engagement Scoring", task_style))
+    story.append(metric_strip(
+        [
+            ("6", "feature buckets"),
+            ("7", "student archetypes"),
+            ("98.4% -> 19.0%", "risk gradient from lowest to highest score band"),
+        ],
+        "#DBEAFE",
+    ))
+    story.append(Paragraph("The weekly 0-100 score uses activity volume, consistency, recency gaps, resource diversity, course-pace alignment, and assessment behavior. Archetypes translate those signals into recognizable patterns such as steady engagers, early dropouts, late recoverers, burst engagers, procrastinators, compliance engagers, and opportunistic engagers.", compact_body))
+
+    story.append(Paragraph("Task 2 - Disengagement Prediction And Staff Alerts", task_style))
+    story.append(metric_strip(
+        [
+            (f"{primary['precision']:.3f}", "high-touch precision"),
+            (f"{primary['roc_auc']:.3f}", "ROC-AUC"),
+            (f"{watchlist['f1']:.3f}", "top-60% F1"),
+            (f"{watchlist['recall']:.3f}", "top-60% recall"),
+        ],
+        "#CCFBF1",
+    ))
+    story.append(Paragraph("The selected model is XGBoost, trained only on Week <= 6 features. The headline result is a strong ranking model (ROC-AUC 0.870) converted into three operational tiers: a precise high-touch advisor queue, broader light-touch behavioral nudges, and passive monitoring.", compact_body))
+
+    story.append(Paragraph("Task 3 - Course Recommendations", task_style))
+    story.append(metric_strip(
+        [
+            (f"{recommender_metrics['content_hit_rate_at_3']:.3f}", "content hit@3"),
+            (f"{recommender_metrics['cf_hit_rate_at_3']:.3f}", "CF hit@3"),
+            ("7/7", "catalog coverage"),
+            (", ".join(recommender_metrics["cold_start_strategy"]), "cold-start modules"),
+        ],
+        "#DCFCE7",
+    ))
+    story.append(Paragraph("The recommender compares collaborative filtering against a shared feature-space content model. The content model matches student Week 6 profiles to course profiles using cosine similarity, blended with a Wilson lower-bound pass-rate prior for a conservative cold-start solution.", compact_body))
+    story.append(Paragraph("Overall result: the prototype is credible enough for a 90-day decision-support pilot. The strongest product insight is how model outputs are converted into workflows that advisors can act on without creating alert fatigue.", compact_body))
+    story.append(Paragraph("What This Ships Into Product", task_style))
+    story.append(Paragraph("<b>Student engagement view.</b> A weekly 0-100 trajectory with an archetype label and the strongest behavioral signals behind the score. This lets administrators separate low grades from true disengagement.", compact_body))
+    story.append(Paragraph("<b>Advisor risk queue.</b> A ranked Week 6 intervention list split into high-touch support, light-touch nudges, and monitoring. This turns model risk into an operational workflow instead of a raw probability column.", compact_body))
+    story.append(Paragraph("<b>Next-module guidance.</b> Top-3 course recommendations with conservative cold-start defaults for students with no history. This gives students and advisors a concrete planning output for the next semester.", compact_body))
+    story.append(Paragraph("Primary caveat: the prototype is evaluated on historical OULAD outcomes, so the next 90 days should prioritize live advisor feedback, subgroup calibration, and recommendation constraints such as timetable availability.", compact_body))
     story.append(PageBreak())
 
     heading("Data Cleaning And Archetypes")
@@ -300,12 +431,12 @@ def write_report(
     cleaning_rows = [["Check", "Issue Count", "Policy"]]
     for _, row in audits["consistency"].iterrows():
         cleaning_rows.append([row["check"], row["issue_count"], row["policy"]])
-    story.append(make_table(cleaning_rows, font_size=7))
+    story.append(make_table(cleaning_rows, font_size=7, col_widths=[150, 55, 295]))
     story.append(Spacer(1, 6))
     leakage_rows = [["Candidate Feature", "Week 6 Available?", "Used?", "Reason"]]
     for _, row in audits["leakage"].head(8).iterrows():
         leakage_rows.append([row["candidate_feature"], row["available_by_week6"], row["used"], row["reason"]])
-    story.append(make_table(leakage_rows, font_size=7))
+    story.append(make_table(leakage_rows, font_size=7, col_widths=[130, 70, 45, 255]))
     body("Negative VLE dates were retained as pre-start proactivity rather than dropped. This provides useful early signal for both risk and recommendation tasks.")
     archetype_path = OUT_DIR / "engagement_archetype_definitions.csv"
     if archetype_path.exists():
@@ -313,7 +444,7 @@ def write_report(
         archetype_rows = [["Archetype", "Behavioral Signature"]]
         for _, row in defs.iterrows():
             archetype_rows.append([row["archetype"], row["feature_signature"]])
-        story.append(make_table(archetype_rows, font_size=6))
+        story.append(make_table(archetype_rows, font_size=6, col_widths=[135, 365]))
     story.append(PageBreak())
 
     heading("Task 1: Engagement Score")
@@ -321,12 +452,12 @@ def write_report(
     weight_rows = [["Component", "Success AUC", "Final Weight"]]
     for _, row in weight_rationale.iterrows():
         weight_rows.append([row["label"], f"{row['success_auc']:.3f}", f"{100 * row['score_weight']:.0f}%"])
-    story.append(make_table(weight_rows, font_size=7))
+    story.append(make_table(weight_rows, font_size=7, col_widths=[260, 110, 110]))
     top = feature_rationale_df.assign(abs_corr=feature_rationale_df["risk_correlation"].abs()).sort_values("abs_corr", ascending=False).head(6)
     top_rows = [["Feature", "Correlation With Withdraw/Fail"]]
     for _, row in top.iterrows():
         top_rows.append([row["feature"], f"{row['risk_correlation']:+.3f}"])
-    story.append(make_table(top_rows, font_size=7))
+    story.append(make_table(top_rows, font_size=7, col_widths=[300, 180]))
     body("Key decision: prioritize recency, consistency, diversity, and assessment follow-through over raw click count. This keeps the score transparent and resistant to click-spam behavior.")
     story.append(Table([[Image(str(FIG_DIR / "score_band_risk.png"), width=245, height=140), Image(str(FIG_DIR / "week6_feature_rationale.png"), width=245, height=140)]]))
     story.append(PageBreak())
@@ -336,11 +467,11 @@ def write_report(
     cmp_rows = [["Model", "Precision", "Recall", "F1", "ROC-AUC"]]
     for _, row in model_result["model_comparison"].head(4).iterrows():
         cmp_rows.append([row["model_name"], f"{row['precision']:.3f}", f"{row['recall']:.3f}", f"{row['f1']:.3f}", f"{row['roc_auc']:.3f}"])
-    story.append(make_table(cmp_rows, font_size=7))
+    story.append(make_table(cmp_rows, font_size=7, col_widths=[160, 80, 80, 80, 80]))
     threshold_rows = [["Cutoff", "Precision", "Recall", "F1", "Queue Share"]]
     threshold_rows.append(["High-touch 20%", f"{primary['precision']:.3f}", f"{primary['recall']:.3f}", f"{primary['f1']:.3f}", f"{primary['alert_rate']:.1%}"])
     threshold_rows.append(["Top-60% light-touch", f"{watchlist['precision']:.3f}", f"{watchlist['recall']:.3f}", f"{watchlist['f1']:.3f}", f"{watchlist['alert_rate']:.1%}"])
-    story.append(make_table(threshold_rows, font_size=7))
+    story.append(make_table(threshold_rows, font_size=7, col_widths=[150, 85, 85, 85, 85]))
     body("Key decision: use tiered intervention (high-touch, light-touch, monitoring) instead of a single campus-wide alert to reduce advisor fatigue.")
     story.append(Table([[Image(str(FIG_DIR / "task2_behavioral_correlation_heatmap.png"), width=245, height=170), Image(str(FIG_DIR / "intervention_tiers.png"), width=245, height=170)]]))
     story.append(PageBreak())
@@ -357,7 +488,7 @@ def write_report(
         ["Collaborative coverage", f"{recommender_metrics['cf_coverage']}/{recommender_metrics['catalog_modules']}"],
         ["Cold-start modules", ", ".join(recommender_metrics["cold_start_strategy"])],
     ]
-    story.append(make_table(rec_rows, font_size=8))
+    story.append(make_table(rec_rows, font_size=8, col_widths=[160, 330]))
     holdout_eval_path = OUT_DIR / "recommendation_holdout_eval.csv"
     if holdout_eval_path.exists():
         eval_df = pd.read_csv(holdout_eval_path)
@@ -365,7 +496,7 @@ def write_report(
         by_rows = [["Actual Module", "Content hit@3", "CF hit@3"]]
         for _, row in by_module.iterrows():
             by_rows.append([row["actual_next_module"], f"{row['content_hit_at_3']:.3f}", f"{row['cf_hit_at_3']:.3f}"])
-        story.append(make_table(by_rows[:8], font_size=7))
+        story.append(make_table(by_rows[:8], font_size=7, col_widths=[160, 160, 160]))
     body("Key decision: replace raw pass-rate priors with Wilson lower-bound priors to reduce small-sample bias. This makes content recommendations more stable and defensible.")
     story.append(PageBreak())
 
@@ -379,13 +510,13 @@ def write_report(
         ["Subgroup calibration not fully audited", "Uneven risk quality can harm trust", "Run subgroup calibration audits and apply targeted recalibration"],
         ["Reproducibility hardening", "Notebook and production states can diverge", "Introduce versioned feature snapshots and run manifests"],
     ]
-    story.append(make_table(gaps_rows, font_size=7))
+    story.append(make_table(gaps_rows, font_size=7, col_widths=[120, 170, 210]))
     roadmap_rows = [
         ["Phase", "Delivery Focus"],
         ["Days 0-30", "Deploy advisor dashboard in shadow mode; validate data freshness and triage quality"],
         ["Days 31-60", "Tune intervention thresholds by module and staffing constraints"],
         ["Days 61-90", "Retrain with feedback labels; publish impact and calibration report"],
     ]
-    story.append(make_table(roadmap_rows, font_size=8))
+    story.append(make_table(roadmap_rows, font_size=8, col_widths=[90, 410]))
     body("Why this is not best-in-class yet: it optimizes predictive performance on available labels, but does not yet optimize intervention utility, fairness constraints, and real scheduling feasibility end-to-end.")
-    doc.build(story)
+    doc.build(story, onFirstPage=report_header, onLaterPages=report_header)

@@ -63,6 +63,7 @@ The first run takes a few minutes because `studentVle.csv` has 10M+ rows.
 - Based on that comparison table, the production pipeline now trains **XGBoost only**: it had the best validation F1 (0.787) and recall (0.842), with competitive ROC-AUC (0.863) and PR-AUC (0.895).
 - Converts predicted risk into operational tiers instead of calling most students “urgent.”
 - Uses top 20% risk as a high-touch advisor support queue, the next 40% for light-touch behavioural nudges, and the remainder for monitoring.
+- Headline metrics: ROC-AUC 0.870, high-touch precision 0.991, top-60% light-touch F1 0.793, and top-60% light-touch recall 0.848.
 - Reports precision, recall, F1, ROC-AUC, tier-level observed risk, calibration, and behavioral drivers.
 
 ### Task 3 — Course recommendations
@@ -109,6 +110,7 @@ Regenerate Word only: `.venv/bin/python src/write_word_report.py`
 
 - Engagement weights: trend and punctuality receive 0% after train AUC checks; clicks, studiousness, diversity, and recency each receive 15%.
 - Model choice: XGBoost selected from the model-comparison table (validation F1 0.787, recall 0.842, ROC-AUC 0.863, PR-AUC 0.895); default runs train XGBoost only to keep the pipeline faster.
+- Week 6 headline: XGBoost ROC-AUC 0.870; high-touch precision 0.991; top-60% light-touch F1 0.793 and recall 0.848.
 - High-touch support queue: 20.1% of students, observed withdraw/fail rate 99.1%, captures 37.7% of at-risk students.
 - Light-touch nudges: next 40.1% of students, observed withdraw/fail rate 62.0%, captures another 47.1% of at-risk students.
 - Monitoring: remaining 39.8% of students, observed withdraw/fail rate 20.2%, reducing advisor alert fatigue.

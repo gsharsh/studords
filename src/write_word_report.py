@@ -97,17 +97,38 @@ def write_word_report() -> Path:
         "(1) a weekly 0–100 engagement score; (2) a Week 6 disengagement risk model; "
         "and (3) a next-module recommendation engine."
     )
+    _add_heading(doc, "Task 1: Behavioral Engagement Scoring", 2)
+    _add_body(
+        doc,
+        "The score is built from six interpretable feature buckets: activity volume, consistency and rhythm, "
+        "recency gaps, resource diversity and intent, course-pace alignment, and assessment behavior. These signals "
+        "support seven archetypes: steady engager, early dropout, late recoverer, burst engager, perfectionist "
+        "procrastinator, compliance engager, and opportunistic engager. "
+        f"The strongest validation result is the Week 6 score gradient: {score_bands.iloc[0]['observed_withdraw_fail_rate']:.1%} "
+        f"withdraw/fail in the 0-20 score band versus {score_bands.iloc[-1]['observed_withdraw_fail_rate']:.1%} in the 80-100 band."
+    )
+    _add_heading(doc, "Task 2: Week 6 Disengagement Model", 2)
+    _add_body(
+        doc,
+        "The final model is XGBoost, trained only on features available by Week 6. Its output is framed as three "
+        "intervention tiers rather than a single urgent alert, reducing alert fatigue while preserving actionability. "
+        f"The headline metrics are ROC-AUC {urgent['roc_auc']:.3f}, high-touch precision {urgent['precision']:.3f}, "
+        f"top-60% light-touch F1 {watchlist['f1']:.3f}, and top-60% light-touch recall {watchlist['recall']:.3f}."
+    )
+    _add_heading(doc, "Task 3: Next-Module Recommendation", 2)
+    _add_body(
+        doc,
+        "The recommender compares collaborative filtering against a shared student-course feature-space content model. "
+        "The content model uses cosine similarity plus a Wilson lower-bound pass-rate prior, which keeps cold-start "
+        "recommendations conservative instead of chasing noisy pass rates. "
+        f"Content hit@3 is {rec_metrics['content_hit_rate_at_3']:.3f}, collaborative hit@3 is "
+        f"{rec_metrics['cf_hit_rate_at_3']:.3f}, and the cold-start modules are {', '.join(rec_metrics['cold_start_strategy'])}."
+    )
     _add_body(
         doc,
         f"The dataset contains {overview.loc[overview['table'] == 'student_info', 'rows'].iloc[0]:,.0f} enrolments "
-        f"across 7 modules. Overall risk rate is {split['risk_rate']:.1%}. The Week 6 model now feeds three "
-        f"intervention tiers instead of a broad urgent alert: top {urgent['alert_rate']:.1%} high-touch support queue, "
-        f"next {watchlist['alert_rate'] - urgent['alert_rate']:.1%} light-touch nudges, and monitoring for the rest "
-        f"(ROC-AUC {urgent['roc_auc']:.3f}). "
-        f"The engagement score band gradient runs from {score_bands.iloc[0]['observed_withdraw_fail_rate']:.1%} "
-        f"withdraw/fail (0–20 band) to {score_bands.iloc[-1]['observed_withdraw_fail_rate']:.1%} (80–100 band). "
-        f"Collaborative filtering hit@3 is {rec_metrics['cf_hit_rate_at_3']:.1%} versus "
-        f"{rec_metrics['content_hit_rate_at_3']:.1%} for content-based recommendations."
+        f"across 7 modules. Overall risk rate is {split['risk_rate']:.1%}. The core product choice is to translate "
+        "statistical outputs into advisor-friendly workflows rather than exposing raw model scores alone."
     )
 
     _add_heading(doc, "1. Data Foundation and Cleaning Decisions", 1)
@@ -281,9 +302,10 @@ def write_word_report() -> Path:
     _add_body(
         doc,
         f"High-touch queue (threshold {urgent['threshold']:.3f}): precision {urgent['precision']:.3f}, "
-        f"recall {urgent['recall']:.3f}, F1 {urgent['f1']:.3f}, students {urgent['alerts']} "
-        f"({urgent['alert_rate']:.1%} of test cohort), ROC-AUC {urgent['roc_auc']:.3f}. "
-        "This is intentionally framed as an advisor queue rather than an urgent alert sent for most students."
+        f"recall {urgent['recall']:.3f}, students {urgent['alerts']} ({urgent['alert_rate']:.1%} of test cohort). "
+        f"The broader top-60% light-touch tier has F1 {watchlist['f1']:.3f} and recall {watchlist['recall']:.3f}; "
+        f"overall model ranking quality is ROC-AUC {urgent['roc_auc']:.3f}. This is intentionally framed as tiered "
+        "support rather than a single urgent alert sent for most students."
     )
     tier_rows = [
         [
