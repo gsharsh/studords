@@ -61,6 +61,7 @@ The first run takes a few minutes because `studentVle.csv` has 10M+ rows.
 - Binary classifier: Withdrawn/Fail vs Pass/Distinction using only Week ≤6 features.
 - Model-selection evidence compared Logistic Regression, Random Forest, XGBoost, and regularized XGBoost.
 - Based on that comparison table, the production pipeline trains **XGBoost only**: it had the best validation F1 (0.787) and recall (0.842), with competitive ROC-AUC (0.863) and PR-AUC (0.895).
+- Separates model quality from alert policy: XGBoost ranks risk, then thresholds are chosen from the precision-recall tradeoff based on advisor workload.
 - Converts predicted risk into operational tiers instead of calling most students “urgent.”
 - Uses top 20% risk as a high-touch advisor support queue, the next 40% for light-touch behavioural nudges, and the remainder for monitoring.
 - Headline metrics: ROC-AUC 0.870, high-touch precision 0.991, top-60% light-touch F1 0.793, and top-60% light-touch recall 0.848.
@@ -120,14 +121,14 @@ Suggested 10-minute structure:
 
 1. **Project framing** — PathAI turns OULAD clickstream, assessment, and profile data into engagement scores, risk tiers, and next-module recommendations.
 2. **Task 1** — show the six feature buckets, Week 6 score validation, and archetype trajectory charts.
-3. **Task 2** — explain leakage-safe Week 6 modelling, why XGBoost was selected, and why the output is tiered to avoid alert fatigue.
+3. **Task 2** — explain leakage-safe Week 6 modelling, why XGBoost was selected, and why model ranking is separated from threshold/intervention policy.
 4. **Task 3** — compare collaborative filtering with the shared feature-space content model and explain the cold-start strategy.
 5. **Reflection** — one key decision: turning model risk into intervention tiers; one next step: live advisor feedback and subgroup calibration.
 
 ## Latest Results
 
 - Engagement weights: trend and punctuality receive 0% after train AUC checks; clicks, studiousness, diversity, and recency each receive 15%.
-- Model choice: XGBoost selected from the model-comparison table (validation F1 0.787, recall 0.842, ROC-AUC 0.863, PR-AUC 0.895); default runs train XGBoost only to keep the pipeline faster.
+- Model choice: XGBoost selected from the model-comparison table (validation F1 0.787, recall 0.842, ROC-AUC 0.863, PR-AUC 0.895); alert thresholds are then chosen as an advisor-capacity product decision.
 - Week 6 headline: XGBoost ROC-AUC 0.870; high-touch precision 0.991; top-60% light-touch F1 0.793 and recall 0.848.
 - High-touch support queue: 20.1% of students, observed withdraw/fail rate 99.1%, captures 37.7% of at-risk students.
 - Light-touch nudges: next 40.1% of students, observed withdraw/fail rate 62.0%, captures another 47.1% of at-risk students.
@@ -137,5 +138,6 @@ Suggested 10-minute structure:
 ## Notes
 
 - Negative VLE dates are **pre-start engagement**, not errors — they signal student eagerness before day 0.
+- `date_unregistration` is audited but excluded from Week 6 prediction because it can leak future withdrawal timing.
 - `outputs/` and raw data are gitignored; commit `src/`, `notebooks/`, `requirements.txt`, and `reports/`.
 - Do not commit the original brief in `task/` or raw OULAD CSVs for public GitHub submission.

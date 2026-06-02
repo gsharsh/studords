@@ -113,7 +113,9 @@ def write_word_report() -> Path:
         "The final model is XGBoost, trained only on features available by Week 6. Its output is framed as three "
         "intervention tiers rather than a single urgent alert, reducing alert fatigue while preserving actionability. "
         f"The headline metrics are ROC-AUC {urgent['roc_auc']:.3f}, high-touch precision {urgent['precision']:.3f}, "
-        f"top-60% light-touch F1 {watchlist['f1']:.3f}, and top-60% light-touch recall {watchlist['recall']:.3f}."
+        f"top-60% light-touch F1 {watchlist['f1']:.3f}, and top-60% light-touch recall {watchlist['recall']:.3f}. "
+        "Model selection and alerting are separated deliberately: XGBoost ranks risk, while intervention thresholds "
+        "reflect advisor capacity and alert-fatigue risk."
     )
     _add_heading(doc, "Task 3: Next-Module Recommendation", 2)
     _add_body(
@@ -176,6 +178,11 @@ def write_word_report() -> Path:
         f"Population check: {pre_start['with_pre_start']:,} of {pre_start['enrolments']:,} enrolments "
         f"({pre_start['with_pre_start_pct']:.1%}) show pre-start activity. Risk rate with pre-start: "
         f"{pre_start['risk_with_pre_start']:.1%}; without: {pre_start['risk_without_pre_start']:.1%}."
+    )
+    _add_body(
+        doc,
+        "By contrast, date_unregistration is treated as an audit field rather than a predictive feature. It can reveal "
+        "future withdrawal timing, so including it in the Week 6 model would overstate real-world performance."
     )
 
     _add_heading(doc, "2.2 In-Semester VLE and Assessment Features", 2)
@@ -260,8 +267,10 @@ def write_word_report() -> Path:
         doc,
         "The notebook model-selection table compared Logistic Regression, Random Forest, XGBoost, and a "
         "regularized XGBoost variant. XGBoost is now the production model because it delivered the best "
-        "validation F1 and recall while keeping ROC-AUC and PR-AUC competitive. To reduce runtime, default "
-        "pipeline runs now train XGBoost only and retain the comparison table as model-selection evidence."
+        "validation F1 and recall while keeping ROC-AUC and PR-AUC competitive. Thresholding is a separate "
+        "product decision: after selecting the model, operating cutoffs are chosen from the precision-recall "
+        "tradeoff based on advisor workload. To reduce runtime, default pipeline runs now train XGBoost only "
+        "and retain the comparison table as model-selection evidence."
     )
     comparison_rows = [
         [
@@ -304,8 +313,8 @@ def write_word_report() -> Path:
         f"High-touch queue (threshold {urgent['threshold']:.3f}): precision {urgent['precision']:.3f}, "
         f"recall {urgent['recall']:.3f}, students {urgent['alerts']} ({urgent['alert_rate']:.1%} of test cohort). "
         f"The broader top-60% light-touch tier has F1 {watchlist['f1']:.3f} and recall {watchlist['recall']:.3f}; "
-        f"overall model ranking quality is ROC-AUC {urgent['roc_auc']:.3f}. This is intentionally framed as tiered "
-        "support rather than a single urgent alert sent for most students."
+        f"overall model ranking quality is ROC-AUC {urgent['roc_auc']:.3f}. The model ranks risk; the product decides "
+        "whether that risk becomes high-touch support, light-touch nudges, or monitoring."
     )
     tier_rows = [
         [

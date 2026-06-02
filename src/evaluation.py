@@ -405,7 +405,7 @@ def write_report(
         ],
         "#CCFBF1",
     ))
-    story.append(Paragraph("The selected model is XGBoost, trained only on Week <= 6 features. The headline result is a strong ranking model (ROC-AUC 0.870) converted into three operational tiers: a precise high-touch advisor queue, broader light-touch behavioral nudges, and passive monitoring.", compact_body))
+    story.append(Paragraph("The selected model is XGBoost, trained only on Week <= 6 features. Model selection and alerting were separated deliberately: XGBoost was chosen for ranking quality, while intervention thresholds were set by advisor capacity and alert-fatigue risk.", compact_body))
 
     story.append(Paragraph("Task 3 - Course Recommendations", task_style))
     story.append(metric_strip(
@@ -437,7 +437,7 @@ def write_report(
     for _, row in audits["leakage"].head(8).iterrows():
         leakage_rows.append([row["candidate_feature"], row["available_by_week6"], row["used"], row["reason"]])
     story.append(make_table(leakage_rows, font_size=7, col_widths=[130, 70, 45, 255]))
-    body("Negative VLE dates were retained as pre-start proactivity rather than dropped. This provides useful early signal for both risk and recommendation tasks.")
+    body("Negative VLE dates were retained as pre-start proactivity rather than dropped. This provides useful early signal for both risk and recommendation tasks. In contrast, date_unregistration was audited but excluded from the Week 6 model because it can reveal future withdrawal.")
     archetype_path = OUT_DIR / "engagement_archetype_definitions.csv"
     if archetype_path.exists():
         defs = pd.read_csv(archetype_path)
@@ -463,7 +463,7 @@ def write_report(
     story.append(PageBreak())
 
     heading("Task 2: Week 6 Disengagement Model")
-    body("Approach: leakage-safe Week 6 binary classification. XGBoost was selected from a reproducible comparison set and then translated into advisor-capacity intervention tiers.")
+    body("Approach: leakage-safe Week 6 binary classification. Several models were compared on validation evidence, XGBoost was selected for ranking quality, and operating thresholds were then chosen from the precision-recall tradeoff based on advisor workload.")
     cmp_rows = [["Model", "Precision", "Recall", "F1", "ROC-AUC"]]
     for _, row in model_result["model_comparison"].head(4).iterrows():
         cmp_rows.append([row["model_name"], f"{row['precision']:.3f}", f"{row['recall']:.3f}", f"{row['f1']:.3f}", f"{row['roc_auc']:.3f}"])
@@ -472,7 +472,7 @@ def write_report(
     threshold_rows.append(["High-touch 20%", f"{primary['precision']:.3f}", f"{primary['recall']:.3f}", f"{primary['f1']:.3f}", f"{primary['alert_rate']:.1%}"])
     threshold_rows.append(["Top-60% light-touch", f"{watchlist['precision']:.3f}", f"{watchlist['recall']:.3f}", f"{watchlist['f1']:.3f}", f"{watchlist['alert_rate']:.1%}"])
     story.append(make_table(threshold_rows, font_size=7, col_widths=[150, 85, 85, 85, 85]))
-    body("Key decision: use tiered intervention (high-touch, light-touch, monitoring) instead of a single campus-wide alert to reduce advisor fatigue.")
+    body("Key decision: separate model quality from threshold policy. The model ranks risk; the product decides whether that risk becomes high-touch support, light-touch nudges, or monitoring. This avoids calling most students urgent while still preserving broad recall through the light-touch tier.")
     story.append(Table([[Image(str(FIG_DIR / "task2_behavioral_correlation_heatmap.png"), width=245, height=170), Image(str(FIG_DIR / "intervention_tiers.png"), width=245, height=170)]]))
     story.append(PageBreak())
 
