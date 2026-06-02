@@ -118,11 +118,11 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
     calibration = model_result["calibration"]
     y_test = model_result["y_test"]
     test_prob = model_result["test_prob"]
-    pred = (test_prob >= primary["threshold"]).astype(int)
+    pred = (test_prob >= watchlist["threshold"]).astype(int)
 
     plt.figure(figsize=(5, 4))
     ConfusionMatrixDisplay.from_predictions(y_test, pred, display_labels=["Pass/Distinction", "Withdraw/Fail"], cmap="Blues")
-    plt.title("High-Touch Queue Confusion Matrix")
+    plt.title("Top-60% Light-Touch Confusion Matrix")
     plt.tight_layout()
     plt.savefig(FIG_DIR / "confusion_matrix.png", dpi=160)
     plt.close()
@@ -473,7 +473,8 @@ def write_report(
     threshold_rows.append(["Top-60% light-touch", f"{watchlist['precision']:.3f}", f"{watchlist['recall']:.3f}", f"{watchlist['f1']:.3f}", f"{watchlist['alert_rate']:.1%}"])
     story.append(make_table(threshold_rows, font_size=7, col_widths=[150, 85, 85, 85, 85]))
     body("Key decision: separate model quality from threshold policy. The model ranks risk; the product decides whether that risk becomes high-touch support, light-touch nudges, or monitoring. This avoids calling most students urgent while still preserving broad recall through the light-touch tier.")
-    story.append(Table([[Image(str(FIG_DIR / "task2_behavioral_correlation_heatmap.png"), width=245, height=170), Image(str(FIG_DIR / "intervention_tiers.png"), width=245, height=170)]]))
+    story.append(Paragraph("What an advisor receives: at the end of Week 6, each course presentation generates a ranked student list with student ID, course, risk score, tier, three plain-English reason codes, and a recommended action. High-touch students enter a live advisor queue and push notification; light-touch students enter a weekly digest and automated nudges; monitoring students remain visible without immediate action.", compact_body))
+    story.append(Table([[Image(str(FIG_DIR / "confusion_matrix.png"), width=245, height=170), Image(str(FIG_DIR / "intervention_tiers.png"), width=245, height=170)]]))
     story.append(PageBreak())
 
     heading("Task 3: Recommendation Engine")

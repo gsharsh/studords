@@ -316,6 +316,25 @@ def write_word_report() -> Path:
         f"overall model ranking quality is ROC-AUC {urgent['roc_auc']:.3f}. The model ranks risk; the product decides "
         "whether that risk becomes high-touch support, light-touch nudges, or monitoring."
     )
+    _add_heading(doc, "4.1 What An Advisor Receives", 2)
+    _add_body(
+        doc,
+        "At the end of Week 6, each course presentation generates a ranked list of students needing support. For each "
+        "student, the advisor sees the student ID, course, predicted risk score, intervention tier, three plain-English "
+        "reason codes, and a recommended action."
+    )
+    _add_body(
+        doc,
+        "Reason codes are translated from the strongest per-student risk signals, for example: missed or late "
+        "assessments, silent weeks in the six-week window, a long gap since last VLE activity, low activity diversity, "
+        "or low assessment completion. The advisor sees why this student is flagged, not just a probability."
+    )
+    _add_body(
+        doc,
+        "Delivery is tiered: high-touch students appear in a live advisor queue and trigger a push notification; "
+        "light-touch students are included in a weekly digest and automated nudge workflow; monitoring students remain "
+        "visible on the dashboard without immediate action."
+    )
     tier_rows = [
         [
             row["tier"],
@@ -328,7 +347,7 @@ def write_word_report() -> Path:
     ]
     _add_table(doc, ["Tier", "Students", "Share", "Observed risk", "Captured risk"], tier_rows)
     _add_figure(doc, FIG_DIR / "intervention_tiers.png", "Figure 7. Capacity-based intervention tiers.")
-    _add_figure(doc, FIG_DIR / "confusion_matrix.png", "Figure 8. High-touch queue confusion matrix.")
+    _add_figure(doc, FIG_DIR / "confusion_matrix.png", "Figure 8. Top-60% light-touch confusion matrix.")
     _add_figure(doc, FIG_DIR / "threshold_tradeoff.png", "Figure 9. Risk cutoff tradeoff.")
     _add_figure(doc, FIG_DIR / "calibration.png", "Figure 10. Calibration curve.")
 
