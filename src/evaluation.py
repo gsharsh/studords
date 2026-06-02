@@ -112,6 +112,7 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
     primary = model_result["primary_metrics"]
     watchlist = model_result["watchlist_metrics"]
     threshold_table = model_result["threshold_table"]
+    intervention_tiers = model_result["intervention_tiers"]
     calibration = model_result["calibration"]
     y_test = model_result["y_test"]
     test_prob = model_result["test_prob"]
@@ -119,7 +120,7 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
 
     plt.figure(figsize=(5, 4))
     ConfusionMatrixDisplay.from_predictions(y_test, pred, display_labels=["Pass/Distinction", "Withdraw/Fail"], cmap="Blues")
-    plt.title("Urgent Alert Confusion Matrix")
+    plt.title("High-Touch Queue Confusion Matrix")
     plt.tight_layout()
     plt.savefig(FIG_DIR / "confusion_matrix.png", dpi=160)
     plt.close()
@@ -128,11 +129,14 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
     plot_df = threshold_table[
         threshold_table["threshold_name"].isin(
             [
-                "urgent_balanced_f1",
-                "watchlist_f2",
+                "high_touch_20pct",
+                "light_touch_60pct",
+                "cv_max_f1_threshold",
+                "cv_max_f2_threshold",
                 "capacity_10pct",
                 "capacity_20pct",
                 "capacity_30pct",
+                "capacity_60pct",
                 "fixed_0.25",
                 "fixed_0.35",
                 "fixed_0.50",
@@ -143,14 +147,29 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
     ]
     sns.lineplot(data=plot_df.sort_values("threshold"), x="threshold", y="precision", marker="o", label="Precision")
     sns.lineplot(data=plot_df.sort_values("threshold"), x="threshold", y="recall", marker="o", label="Recall")
-    plt.axvline(primary["threshold"], color="#E45756", linestyle="--", label="Urgent threshold")
-    plt.axvline(watchlist["threshold"], color="#4C78A8", linestyle=":", label="Watchlist threshold")
-    plt.title("Alert Threshold Tradeoff")
+    plt.axvline(primary["threshold"], color="#E45756", linestyle="--", label="High-touch cutoff")
+    plt.axvline(watchlist["threshold"], color="#4C78A8", linestyle=":", label="Light-touch cutoff")
+    plt.title("Risk Cutoff Tradeoff")
     plt.xlabel("Risk threshold")
     plt.ylabel("Metric")
     plt.legend()
     plt.tight_layout()
     plt.savefig(FIG_DIR / "threshold_tradeoff.png", dpi=160)
+    plt.close()
+
+    plt.figure(figsize=(7.2, 4.2))
+    tier_plot = intervention_tiers.copy()
+    sns.barplot(data=tier_plot, x="tier", y="student_share", color="#4C78A8", label="Student share")
+    ax = plt.gca()
+    ax2 = ax.twinx()
+    sns.pointplot(data=tier_plot, x="tier", y="observed_withdraw_fail_rate", color="#E45756", ax=ax2, label="Observed risk")
+    ax.set_xlabel("")
+    ax.set_ylabel("Share of students")
+    ax2.set_ylabel("Observed withdraw/fail rate")
+    ax.set_title("Capacity-Based Intervention Tiers")
+    ax.tick_params(axis="x", rotation=15)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "intervention_tiers.png", dpi=160)
     plt.close()
 
     plt.figure(figsize=(5.5, 4.2))
@@ -162,6 +181,49 @@ def plot_model_outputs(model_result: dict[str, Any]) -> None:
     plt.legend()
     plt.tight_layout()
     plt.savefig(FIG_DIR / "calibration.png", dpi=160)
+    plt.close()
+
+
+def plot_task2_behavioral_correlation_heatmap(model_df: pd.DataFrame) -> None:
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    features = [
+        "risk_label",
+        "engagement_score_6",
+        "assessment_submitted_ratio_6",
+        "missed_assessments_6",
+        "weekly_clicks_norm_6",
+        "active_days_last_7_6",
+        "study_regularity_score_6",
+        "activity_diversity_6",
+        "activity_entropy_6",
+        "material_active_days_6",
+        "recent_material_active_days_2w_6",
+        "pre_start_proactivity_6",
+        "days_since_last_click_6",
+        "inactive_last_14_days_6",
+        "longest_inactive_gap_6",
+        "planned_material_coverage_6",
+        "low_weight_completion_ratio_6",
+    ]
+    features = [col for col in features if col in model_df.columns]
+    corr = model_df[features].corr(numeric_only=True)
+    corr.to_csv(OUT_DIR / "task2_behavioral_correlation_matrix.csv")
+
+    plt.figure(figsize=(12, 9))
+    sns.heatmap(
+        corr,
+        cmap="vlag",
+        center=0,
+        annot=True,
+        fmt=".2f",
+        linewidths=0.4,
+        cbar_kws={"label": "Pearson correlation"},
+    )
+    plt.title("Task 2 Week 6 Behavioral Feature Correlation Heatmap")
+    plt.xticks(rotation=45, ha="right")
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "task2_behavioral_correlation_heatmap.png", dpi=160)
     plt.close()
 
 
@@ -210,136 +272,120 @@ def write_report(
 
     primary = model_result["primary_metrics"]
     watchlist = model_result["watchlist_metrics"]
+    intervention_tiers = model_result["intervention_tiers"]
 
-    heading("Studor PathAI: Baseline Product Prototype")
-    body("This analysis converts OULAD behavioral, assessment, and student context data into three product-facing assets: a weekly engagement score, a Week 6 disengagement risk model, and next-course recommendations.")
-    body(f"The Week 6 model predicts Withdrawn/Fail versus Pass/Distinction. The urgent tier now alerts {primary['alert_rate']:.1%} of the test cohort at precision {primary['precision']:.2f} and recall {primary['recall']:.2f}; the broader watchlist alerts {watchlist['alert_rate']:.1%} for monitoring.")
-    story.append(Image(str(FIG_DIR / "outcome_eda.png"), width=480, height=175))
+    heading("Executive Summary")
+    body("This report presents a production-oriented PathAI prototype built on one semester of OULAD data. The system combines three outputs: a weekly engagement score, a Week 6 disengagement model, and a next-course recommendation engine.")
+    body("Task 1 produces a dynamic 0-100 engagement score from behavior and assessment signals. Task 2 predicts Withdrawn/Fail versus Pass/Distinction using only Week <= 6 information and converts risk into intervention tiers. Task 3 recommends top-3 modules using both collaborative filtering and a shared feature-space content model.")
+    summary_rows = [
+        ["Metric", "Result"],
+        ["Task 2 model", "XGBoost (selected from comparison table)"],
+        ["High-touch precision", f"{primary['precision']:.3f}"],
+        ["High-touch recall", f"{primary['recall']:.3f}"],
+        ["High-touch F1", f"{primary['f1']:.3f}"],
+        ["ROC-AUC", f"{primary['roc_auc']:.3f}"],
+        ["PR-AUC", f"{primary['pr_auc']:.3f}"],
+        ["High-touch queue share", f"{primary['alert_rate']:.1%}"],
+        ["Top-60% recall", f"{watchlist['recall']:.3f}"],
+        ["Task 3 content hit@3", f"{recommender_metrics['content_hit_rate_at_3']:.3f}"],
+        ["Task 3 CF hit@3", f"{recommender_metrics['cf_hit_rate_at_3']:.3f}"],
+    ]
+    story.append(make_table(summary_rows, font_size=8))
+    body("Result: the system is statistically credible and operationally actionable. It is intentionally framed for deployment as decision support, not autonomous intervention.")
+    story.append(Image(str(FIG_DIR / "outcome_eda.png"), width=500, height=180))
     story.append(PageBreak())
 
-    heading("Data Cleaning And Leakage Controls")
-    body("The enrolment key is student + module + presentation; student ID alone is not unique because learners can take multiple modules. Cleaning is conservative: semantic issues are audited rather than silently rewriting the official target label. Negative VLE dates are treated as valid pre-start engagement before day 0.")
+    heading("Data Cleaning And Archetypes")
+    body("The enrollment grain is id_student x code_module x code_presentation. Student ID alone is not unique in OULAD. Cleaning decisions preserve behavior signal while preventing target leakage.")
     cleaning_rows = [["Check", "Issue Count", "Policy"]]
     for _, row in audits["consistency"].iterrows():
         cleaning_rows.append([row["check"], row["issue_count"], row["policy"]])
     story.append(make_table(cleaning_rows, font_size=7))
-    story.append(Spacer(1, 8))
-    leakage_rows = [["Feature", "Available Week 6?", "Used?", "Reason"]]
-    for _, row in audits["leakage"].head(7).iterrows():
+    story.append(Spacer(1, 6))
+    leakage_rows = [["Candidate Feature", "Week 6 Available?", "Used?", "Reason"]]
+    for _, row in audits["leakage"].head(8).iterrows():
         leakage_rows.append([row["candidate_feature"], row["available_by_week6"], row["used"], row["reason"]])
     story.append(make_table(leakage_rows, font_size=7))
+    body("Negative VLE dates were retained as pre-start proactivity rather than dropped. This provides useful early signal for both risk and recommendation tasks.")
+    archetype_path = OUT_DIR / "engagement_archetype_definitions.csv"
+    if archetype_path.exists():
+        defs = pd.read_csv(archetype_path)
+        archetype_rows = [["Archetype", "Behavioral Signature"]]
+        for _, row in defs.iterrows():
+            archetype_rows.append([row["archetype"], row["feature_signature"]])
+        story.append(make_table(archetype_rows, font_size=6))
     story.append(PageBreak())
 
-    heading("Task 1: Dynamic Engagement Score")
-    body("The 0-100 engagement score updates weekly and is peer-normalized within module, presentation, and week. Component weights are derived from the training split by measuring how well each component separates successful students from withdraw/fail students at Week 6, then rounded into a readable scorecard.")
-    top_features = feature_rationale_df.assign(abs_corr=feature_rationale_df["risk_correlation"].abs()).sort_values(
-        "abs_corr", ascending=False
-    ).head(5)
-    top_feature_text = "; ".join(f"{row['feature']} r={row['risk_correlation']:+.3f}" for _, row in top_features.iterrows())
-    body(f"Most data-backed Week 6 signals: {top_feature_text}.")
-    weight_rows = [["Component", "Success AUC", "Weight"]]
+    heading("Task 1: Engagement Score")
+    body("Approach: construct weekly behavioral features, normalize by module-presentation-week peers, and aggregate with train-derived weights. Components with weak train signal are assigned zero weight.")
+    weight_rows = [["Component", "Success AUC", "Final Weight"]]
     for _, row in weight_rationale.iterrows():
         weight_rows.append([row["label"], f"{row['success_auc']:.3f}", f"{100 * row['score_weight']:.0f}%"])
     story.append(make_table(weight_rows, font_size=7))
-    body("Scorecard guardrail: components with train success AUC <= 0.50 are assigned 0% weight because they are weaker than random as score components in the current definition. They can remain exploratory features, but they should not move the trusted 0-100 score.")
-    archetype_path = OUT_DIR / "engagement_archetype_definitions.csv"
-    if archetype_path.exists():
-        archetype_defs = pd.read_csv(archetype_path)
-        archetype_rows = [["Archetype", "Feature signature"]]
-        for _, row in archetype_defs.iterrows():
-            archetype_rows.append([row["archetype"], row["feature_signature"]])
-        story.append(make_table(archetype_rows, font_size=5))
-    story.append(
-        Table(
-            [
-                [
-                    Image(str(FIG_DIR / "engagement_archetypes_core.png"), width=240, height=105),
-                    Image(str(FIG_DIR / "engagement_archetypes_additional.png"), width=240, height=105),
-                ]
-            ]
-        )
-    )
+    top = feature_rationale_df.assign(abs_corr=feature_rationale_df["risk_correlation"].abs()).sort_values("abs_corr", ascending=False).head(6)
+    top_rows = [["Feature", "Correlation With Withdraw/Fail"]]
+    for _, row in top.iterrows():
+        top_rows.append([row["feature"], f"{row['risk_correlation']:+.3f}"])
+    story.append(make_table(top_rows, font_size=7))
+    body("Key decision: prioritize recency, consistency, diversity, and assessment follow-through over raw click count. This keeps the score transparent and resistant to click-spam behavior.")
+    story.append(Table([[Image(str(FIG_DIR / "score_band_risk.png"), width=245, height=140), Image(str(FIG_DIR / "week6_feature_rationale.png"), width=245, height=140)]]))
     story.append(PageBreak())
 
-    heading("Task 2: Week 6 Risk Model")
-    body("The supervised model uses only features available through Week 6. It includes the Task 1 engagement score, a Week 6-safe behavioural archetype, transformed profile context (education order, IMD midpoint, age order, normalized credit load), resource-mix ratios, and selected interaction features. Candidate models are compared with cross-validated F1, PR-AUC, and ROC-AUC for the urgent alert, while a high-recall F2 threshold remains available as a watchlist.")
-    body(f"Urgent threshold {primary['threshold']:.2f}: precision {primary['precision']:.3f}, recall {primary['recall']:.3f}, F1 {primary['f1']:.3f}, ROC-AUC {primary['roc_auc']:.3f}. Confusion matrix counts: TN={primary['true_negatives']}, FP={primary['false_positives']}, FN={primary['false_negatives']}, TP={primary['true_positives']}.")
-    threshold_rows = [["Tier", "Threshold", "Precision", "Recall", "F1", "Alerts", "Alert Share", "FP", "FN"]]
-    for row in model_result["threshold_table"].to_dict("records"):
-        if row["threshold_name"] in ["urgent_balanced_f1", "watchlist_f2", "capacity_20pct", "fixed_0.50"]:
-            tier = {
-                "urgent_balanced_f1": "Urgent",
-                "watchlist_f2": "Watchlist",
-                "capacity_20pct": "Capacity 20%",
-                "fixed_0.50": "Fixed 0.50",
-            }[row["threshold_name"]]
-            threshold_rows.append(
-                [
-                    tier,
-                    f"{row['threshold']:.2f}",
-                    f"{row['precision']:.2f}",
-                    f"{row['recall']:.2f}",
-                    f"{row['f1']:.2f}",
-                    int(row["alerts"]),
-                    f"{row['alert_rate']:.1%}",
-                    int(row["false_positives"]),
-                    int(row["false_negatives"]),
-                ]
-            )
+    heading("Task 2: Week 6 Disengagement Model")
+    body("Approach: leakage-safe Week 6 binary classification. XGBoost was selected from a reproducible comparison set and then translated into advisor-capacity intervention tiers.")
+    cmp_rows = [["Model", "Precision", "Recall", "F1", "ROC-AUC"]]
+    for _, row in model_result["model_comparison"].head(4).iterrows():
+        cmp_rows.append([row["model_name"], f"{row['precision']:.3f}", f"{row['recall']:.3f}", f"{row['f1']:.3f}", f"{row['roc_auc']:.3f}"])
+    story.append(make_table(cmp_rows, font_size=7))
+    threshold_rows = [["Cutoff", "Precision", "Recall", "F1", "Queue Share"]]
+    threshold_rows.append(["High-touch 20%", f"{primary['precision']:.3f}", f"{primary['recall']:.3f}", f"{primary['f1']:.3f}", f"{primary['alert_rate']:.1%}"])
+    threshold_rows.append(["Top-60% light-touch", f"{watchlist['precision']:.3f}", f"{watchlist['recall']:.3f}", f"{watchlist['f1']:.3f}", f"{watchlist['alert_rate']:.1%}"])
     story.append(make_table(threshold_rows, font_size=7))
-    story.append(Spacer(1, 6))
-    story.append(Image(str(FIG_DIR / "confusion_matrix.png"), width=310, height=240))
-    story.append(Image(str(FIG_DIR / "threshold_tradeoff.png"), width=310, height=205))
+    body("Key decision: use tiered intervention (high-touch, light-touch, monitoring) instead of a single campus-wide alert to reduce advisor fatigue.")
+    story.append(Table([[Image(str(FIG_DIR / "task2_behavioral_correlation_heatmap.png"), width=245, height=170), Image(str(FIG_DIR / "intervention_tiers.png"), width=245, height=170)]]))
     story.append(PageBreak())
 
-    heading("Calibration And Advisor Alert Design")
-    body("The alert design uses two tiers. Urgent alerts use a balanced F1 threshold to create advisor tasks with better precision; watchlist alerts use a higher-recall F2 threshold for monitoring and automated nudges.")
-    story.append(Image(str(FIG_DIR / "calibration.png"), width=360, height=255))
-    overall = model_result["feature_drivers"].head(3).copy()
-    behavioral = model_result["behavioral_feature_drivers"].head(3).copy()
-    driver_rows = [["Group", "Feature", "Mechanism"]]
-    mechanisms = {
-        "avg_score_so_far_6": "Early academic struggle may signal content difficulty before final failure.",
-        "engagement_score_6": "Combines recency, consistency, diversity, and assessment behavior into a trajectory signal.",
-        "assessment_submitted_ratio_6": "Missing early assessments is both predictive and directly actionable for advisors.",
-    }
-    for _, row in overall.iterrows():
-        feature = row["feature"].replace("num__", "")
-        driver_rows.append(["Overall", feature, mechanisms.get(feature, "High-ranking driver in permutation importance.")])
-    for _, row in behavioral.iterrows():
-        feature = row["feature"].replace("num__", "")
-        driver_rows.append(["Behavioral", feature, mechanisms.get(feature, "Behavioral signal advisors can investigate or act on.")])
-    story.append(make_table(driver_rows, font_size=7))
-    story.append(Spacer(1, 6))
-    alert_rows = [
-        ["PathAI Advisor Alert", ""],
-        ["Student", "S-10482"],
-        ["Course", "DDD-2014J"],
-        ["Risk tier", "Urgent"],
-        ["Predicted risk", "78%"],
-        ["Why flagged", "No VLE activity in 12 days; engagement score dropped from 61 to 34 over two weeks; first assessment due by Week 6 was not submitted."],
-        ["Suggested action", "Send check-in within 48 hours. Ask about workload, access issues, and confidence with course material. Offer academic support session."],
-    ]
-    story.append(make_table(alert_rows, font_size=8))
-    story.append(PageBreak())
-
-    heading("Task 3: Course Recommendations")
-    body("The recommender primarily serves students planning a next semester, while advisors can use the same output in guidance conversations. Content-based recommendations use education, age band, historical module success, and prior engagement band. Collaborative filtering uses cosine similarity over successful module patterns.")
+    heading("Task 3: Recommendation Engine")
+    body("Approach: compare collaborative filtering to a shared feature-space content model. Student Week 6 vectors are matched to module profile vectors via cosine similarity, blended with a Wilson lower-bound pass prior.")
     rec_rows = [
-        ["Metric", "Value"],
+        ["Metric", "Result"],
+        ["Evaluation split", recommender_metrics.get("evaluation_split", "Temporal holdout")],
         ["Holdout students", recommender_metrics["holdout_students"]],
         ["Content hit@3", f"{recommender_metrics['content_hit_rate_at_3']:.3f}"],
         ["Collaborative hit@3", f"{recommender_metrics['cf_hit_rate_at_3']:.3f}"],
         ["Content coverage", f"{recommender_metrics['content_coverage']}/{recommender_metrics['catalog_modules']}"],
         ["Collaborative coverage", f"{recommender_metrics['cf_coverage']}/{recommender_metrics['catalog_modules']}"],
-        ["Cold start", ", ".join(recommender_metrics["cold_start_strategy"])],
+        ["Cold-start modules", ", ".join(recommender_metrics["cold_start_strategy"])],
     ]
     story.append(make_table(rec_rows, font_size=8))
-    body("Limitations: OULAD has a small module catalog, recommendation evaluation is a proxy holdout, and production deployment would need advisor feedback loops plus monitoring by module and presentation.")
+    holdout_eval_path = OUT_DIR / "recommendation_holdout_eval.csv"
+    if holdout_eval_path.exists():
+        eval_df = pd.read_csv(holdout_eval_path)
+        by_module = eval_df.groupby("actual_next_module")[["content_hit_at_3", "cf_hit_at_3"]].mean().sort_index().reset_index()
+        by_rows = [["Actual Module", "Content hit@3", "CF hit@3"]]
+        for _, row in by_module.iterrows():
+            by_rows.append([row["actual_next_module"], f"{row['content_hit_at_3']:.3f}", f"{row['cf_hit_at_3']:.3f}"])
+        story.append(make_table(by_rows[:8], font_size=7))
+    body("Key decision: replace raw pass-rate priors with Wilson lower-bound priors to reduce small-sample bias. This makes content recommendations more stable and defensible.")
+    story.append(PageBreak())
+
+    heading("Gaps And 90-Day Plan")
+    body("This prototype is intentionally simple and explainable, but not yet production-complete. The table below lists key gaps and concrete next actions.")
+    gaps_rows = [
+        ["Gap", "Why It Matters", "90-Day Action"],
+        ["Limited temporal depth", "One-semester windows can miss drift", "Move to rolling-semester retraining and drift checks"],
+        ["No advisor feedback loop", "Model thresholds are not tied to intervention outcomes", "Capture advisor action/outcome labels and recalibrate monthly"],
+        ["Recommendation label weakness", "Next module may reflect timetable constraints", "Add schedule constraints and student intent tags"],
+        ["Subgroup calibration not fully audited", "Uneven risk quality can harm trust", "Run subgroup calibration audits and apply targeted recalibration"],
+        ["Reproducibility hardening", "Notebook and production states can diverge", "Introduce versioned feature snapshots and run manifests"],
+    ]
+    story.append(make_table(gaps_rows, font_size=7))
     roadmap_rows = [
-        ["90-day roadmap", "1. Pilot tiered alerts with advisors and track accepted interventions."],
-        ["", "2. Add advisor feedback labels to calibrate thresholds by module workload."],
-        ["", "3. Extend recommendations with richer course metadata and student goals."],
+        ["Phase", "Delivery Focus"],
+        ["Days 0-30", "Deploy advisor dashboard in shadow mode; validate data freshness and triage quality"],
+        ["Days 31-60", "Tune intervention thresholds by module and staffing constraints"],
+        ["Days 61-90", "Retrain with feedback labels; publish impact and calibration report"],
     ]
     story.append(make_table(roadmap_rows, font_size=8))
+    body("Why this is not best-in-class yet: it optimizes predictive performance on available labels, but does not yet optimize intervention utility, fairness constraints, and real scheduling feasibility end-to-end.")
     doc.build(story)

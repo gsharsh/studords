@@ -2,7 +2,7 @@
 
 Baseline implementation for the Studor PathAI take-home assessment using the Open University Learning Analytics Dataset (OULAD).
 
-Evidence-led pipeline covering three product tasks: weekly engagement scoring, Week 6 disengagement alerts, and next-module recommendations.
+Evidence-led pipeline covering three product tasks: weekly engagement scoring, Week 6 disengagement intervention tiers, and next-module recommendations.
 
 ## Project Structure
 
@@ -59,15 +59,18 @@ The first run takes a few minutes because `studentVle.csv` has 10M+ rows.
 ### Task 2 — Week 6 disengagement model
 
 - Binary classifier: Withdrawn/Fail vs Pass/Distinction using only Week ≤6 features.
-- Compares Logistic Regression, Random Forest, KNN, calibrated Linear SVC, XGBoost, and Soft Voting.
-- Selects the urgent-alert classifier by cross-validated F1/PR-AUC, then keeps a separate high-recall F2 watchlist threshold.
-- Uses a balanced urgent threshold for stronger precision/F1 and a broader watchlist threshold for higher recall.
-- Reports precision, recall, F1, ROC-AUC, confusion matrix, calibration, and behavioral drivers.
+- Model-selection evidence compared Logistic Regression, Random Forest, XGBoost, and regularized XGBoost.
+- Based on that comparison table, the production pipeline now trains **XGBoost only**: it had the best validation F1 (0.787) and recall (0.842), with competitive ROC-AUC (0.863) and PR-AUC (0.895).
+- Converts predicted risk into operational tiers instead of calling most students “urgent.”
+- Uses top 20% risk as a high-touch advisor support queue, the next 40% for light-touch behavioural nudges, and the remainder for monitoring.
+- Reports precision, recall, F1, ROC-AUC, tier-level observed risk, calibration, and behavioral drivers.
 
 ### Task 3 — Course recommendations
 
-- Content-based (demographics + engagement + proactivity history) vs collaborative filtering (cosine similarity).
-- Cold-start defaults to modules where proactive starters succeed best.
+- Content-based shared feature-space recommender: Week-6 student vector vs module profile vector (cosine similarity + Wilson pass-rate prior).
+- Collaborative filtering baseline over prior successful module patterns.
+- Temporal holdout split: train on `2013B/2013J/2014B`, evaluate on `2014J`.
+- Cold-start defaults to modules ranked by Wilson lower-bound success prior.
 - Evaluated with temporal holdout hit@3 and catalog coverage.
 
 ## Dataset
@@ -89,7 +92,7 @@ The loader also checks `dataset/` if `data/` is absent.
 - `data_cleaning_overview.csv`, `data_consistency_audit.csv`, `data_missingness_audit.csv`, `leakage_audit.csv`
 - `engagement_weight_rationale.csv`, `engagement_score_band_risk.csv`, `feature_rationale_week6.csv`
 - `enrollment_train_test_split.csv`, `risk_metrics.json`, `risk_watchlist_metrics.json`
-- `risk_threshold_analysis.csv`, `risk_feature_drivers.csv`, `risk_behavioral_feature_drivers.csv`
+- `risk_threshold_analysis.csv`, `risk_intervention_tiers.csv`, `risk_feature_drivers.csv`, `risk_behavioral_feature_drivers.csv`
 - `task2_feature_catalog.csv`, `week6_archetype_risk_rates.csv`, `profile_group_risk_rates.csv`
 - `calibration.csv`, `recommendation_metrics.json`, `recommendation_holdout_eval.csv`
 - `models/week6_risk_model.joblib`
@@ -105,9 +108,11 @@ Regenerate Word only: `.venv/bin/python src/write_word_report.py`
 ## Latest Results
 
 - Engagement weights: trend and punctuality receive 0% after train AUC checks; clicks, studiousness, diversity, and recency each receive 15%.
-- Urgent alert: precision 0.762, recall 0.833, F1 0.796, ROC-AUC 0.872, alert share 57.7%.
-- Watchlist: precision 0.603, recall 0.970, alert share 85.0%.
-- Recommendations: content hit@3 0.111, CF hit@3 0.594; cold-start AAA/EEE/GGG.
+- Model choice: XGBoost selected from the model-comparison table (validation F1 0.787, recall 0.842, ROC-AUC 0.863, PR-AUC 0.895); default runs train XGBoost only to keep the pipeline faster.
+- High-touch support queue: 20.1% of students, observed withdraw/fail rate 99.1%, captures 37.7% of at-risk students.
+- Light-touch nudges: next 40.1% of students, observed withdraw/fail rate 62.0%, captures another 47.1% of at-risk students.
+- Monitoring: remaining 39.8% of students, observed withdraw/fail rate 20.2%, reducing advisor alert fatigue.
+- Recommendations (temporal holdout `2014J`): content hit@3 0.354, CF hit@3 0.468; both achieve 7/7 coverage; cold-start AAA/GGG/EEE.
 
 ## Notes
 

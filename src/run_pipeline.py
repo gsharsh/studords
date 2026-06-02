@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from data_loader import FIG_DIR, OUT_DIR, REPORT_DIR, audit_and_clean_data, ensure_dirs, load_data
-from evaluation import plot_data_quality, plot_engagement_outputs, plot_model_outputs, write_report
+from evaluation import (
+    plot_data_quality,
+    plot_engagement_outputs,
+    plot_model_outputs,
+    plot_task2_behavioral_correlation_heatmap,
+    write_report,
+)
 from features import build_weekly_base_features, feature_rationale, make_enrollment_split
 from modeling import build_week6_model_dataset, train_risk_model
 from recommendations import evaluate_recommenders
@@ -31,6 +37,7 @@ def run_pipeline() -> dict:
     plot_engagement_outputs(archetypes, score_band_risk, feature_rationale_df)
 
     model_df = build_week6_model_dataset(weekly, data)
+    plot_task2_behavioral_correlation_heatmap(model_df)
     model_result = train_risk_model(model_df, split)
     plot_model_outputs(model_result)
 
@@ -61,8 +68,9 @@ def main() -> None:
     print(f"Report (Word): {REPORT_DIR / 'Studor_PathAI_Report.docx'}")
     print(f"Figures: {FIG_DIR}")
     print(f"Engagement weights: {result['weights']}")
-    print(f"Urgent alert metrics: {primary}")
-    print(f"Watchlist metrics: {watchlist}")
+    print(f"High-touch queue metrics: {primary}")
+    print(f"Top-60% light-touch cutoff metrics: {watchlist}")
+    print(f"Intervention tiers:\n{result['model_result']['intervention_tiers']}")
     print(f"Recommendation metrics: {result['recommender_metrics']}")
 
 

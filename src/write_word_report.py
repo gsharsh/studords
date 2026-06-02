@@ -61,14 +61,15 @@ def write_word_report() -> Path:
     consistency = _load_csv("data_consistency_audit.csv")
     leakage = _load_csv("leakage_audit.csv")
     overview = _load_csv("data_cleaning_overview.csv")
+    model_comparison = _load_csv("model_comparison_cv.csv")
     threshold_table = _load_csv("risk_threshold_analysis.csv")
+    intervention_tiers = _load_csv("risk_intervention_tiers.csv")
     behavioral_drivers = _load_csv("risk_behavioral_feature_drivers.csv")
     rec_metrics = _load_json("recommendation_metrics.json")
     urgent = _load_json("risk_metrics.json")[0]
     watchlist = _load_json("risk_watchlist_metrics.json")[0]
     pre_start = pre_start_validation()
     split = split_summary()
-    capacity = threshold_table.loc[threshold_table["threshold_name"] == "capacity_20pct"].iloc[0]
     assess_row = feature_rationale.loc[feature_rationale["feature"] == "assessment_submitted_ratio"].iloc[0]
     engagement_row = feature_rationale.loc[feature_rationale["feature"] == "engagement_score"].iloc[0]
     neg_date_count = int(
@@ -99,9 +100,10 @@ def write_word_report() -> Path:
     _add_body(
         doc,
         f"The dataset contains {overview.loc[overview['table'] == 'student_info', 'rows'].iloc[0]:,.0f} enrolments "
-        f"across 7 modules. Overall risk rate is {split['risk_rate']:.1%}. The Week 6 urgent tier alerts "
-        f"{urgent['alert_rate']:.1%} of the test cohort at recall {urgent['recall']:.1%} and precision "
-        f"{urgent['precision']:.1%} (ROC-AUC {urgent['roc_auc']:.3f}). "
+        f"across 7 modules. Overall risk rate is {split['risk_rate']:.1%}. The Week 6 model now feeds three "
+        f"intervention tiers instead of a broad urgent alert: top {urgent['alert_rate']:.1%} high-touch support queue, "
+        f"next {watchlist['alert_rate'] - urgent['alert_rate']:.1%} light-touch nudges, and monitoring for the rest "
+        f"(ROC-AUC {urgent['roc_auc']:.3f}). "
         f"The engagement score band gradient runs from {score_bands.iloc[0]['observed_withdraw_fail_rate']:.1%} "
         f"withdraw/fail (0–20 band) to {score_bands.iloc[-1]['observed_withdraw_fail_rate']:.1%} (80–100 band). "
         f"Collaborative filtering hit@3 is {rec_metrics['cf_hit_rate_at_3']:.1%} versus "
@@ -235,10 +237,28 @@ def write_word_report() -> Path:
     )
     _add_body(
         doc,
-        "The notebook compares Logistic Regression, Random Forest, KNN, calibrated Linear SVC, XGBoost, "
-        "a regularized XGBoost variant, and Soft Voting. The urgent-alert classifier is chosen by cross-validated "
-        "F1, with PR-AUC and ROC-AUC used as secondary checks. A broader watchlist keeps a separate higher-recall "
-        "F2 threshold."
+        "The notebook model-selection table compared Logistic Regression, Random Forest, XGBoost, and a "
+        "regularized XGBoost variant. XGBoost is now the production model because it delivered the best "
+        "validation F1 and recall while keeping ROC-AUC and PR-AUC competitive. To reduce runtime, default "
+        "pipeline runs now train XGBoost only and retain the comparison table as model-selection evidence."
+    )
+    comparison_rows = [
+        [
+            row["model_name"],
+            f"{row['precision']:.3f}",
+            f"{row['recall']:.3f}",
+            f"{row['f1']:.3f}",
+            f"{row['roc_auc']:.3f}",
+            row.get("selection_note", ""),
+        ]
+        for _, row in model_comparison.head(4).iterrows()
+    ]
+    _add_table(doc, ["Model", "Precision", "Recall", "F1", "ROC-AUC", "Decision"], comparison_rows)
+    _add_figure(
+        doc,
+        FIG_DIR / "task2_behavioral_correlation_heatmap.png",
+        "Figure 6. Task 2 Week 6 behavioural feature correlation heatmap.",
+        width=6.4,
     )
     _add_body(
         doc,
@@ -260,16 +280,26 @@ def write_word_report() -> Path:
     _add_table(doc, ["Threshold", "Value", "Precision", "Recall", "FN", "FP"], thresh_rows)
     _add_body(
         doc,
-        f"Urgent tier (threshold {urgent['threshold']:.3f}): precision {urgent['precision']:.3f}, "
-        f"recall {urgent['recall']:.3f}, F1 {urgent['f1']:.3f}, alerts {urgent['alerts']} "
+        f"High-touch queue (threshold {urgent['threshold']:.3f}): precision {urgent['precision']:.3f}, "
+        f"recall {urgent['recall']:.3f}, F1 {urgent['f1']:.3f}, students {urgent['alerts']} "
         f"({urgent['alert_rate']:.1%} of test cohort), ROC-AUC {urgent['roc_auc']:.3f}. "
-        f"Capacity tier: precision {capacity['precision']:.1%}, recall {capacity['recall']:.1%}. "
-        "AUC is threshold-independent, so threshold tuning changes alert volume, precision, recall, and F1, "
-        "but not the model's ranking quality."
+        "This is intentionally framed as an advisor queue rather than an urgent alert sent for most students."
     )
-    _add_figure(doc, FIG_DIR / "confusion_matrix.png", "Figure 6. Urgent-tier confusion matrix.")
-    _add_figure(doc, FIG_DIR / "threshold_tradeoff.png", "Figure 7. Threshold tradeoff.")
-    _add_figure(doc, FIG_DIR / "calibration.png", "Figure 8. Calibration curve.")
+    tier_rows = [
+        [
+            row["tier"],
+            int(row["students"]),
+            f"{row['student_share']:.1%}",
+            f"{row['observed_withdraw_fail_rate']:.1%}",
+            f"{row['captured_risk_share']:.1%}",
+        ]
+        for _, row in intervention_tiers.iterrows()
+    ]
+    _add_table(doc, ["Tier", "Students", "Share", "Observed risk", "Captured risk"], tier_rows)
+    _add_figure(doc, FIG_DIR / "intervention_tiers.png", "Figure 7. Capacity-based intervention tiers.")
+    _add_figure(doc, FIG_DIR / "confusion_matrix.png", "Figure 8. High-touch queue confusion matrix.")
+    _add_figure(doc, FIG_DIR / "threshold_tradeoff.png", "Figure 9. Risk cutoff tradeoff.")
+    _add_figure(doc, FIG_DIR / "calibration.png", "Figure 10. Calibration curve.")
 
     mechanisms = {
         "avg_score_so_far_6": "Early academic struggle may signal content difficulty before final failure.",
@@ -296,9 +326,8 @@ def write_word_report() -> Path:
         doc,
         f"Top driver: assessment completion (withdraw/fail mean {assess_row['withdraw_fail_mean']:.1%} vs "
         f"{assess_row['pass_distinction_mean']:.1%} for successful students). "
-        f"Advisor alert at balanced urgent threshold {urgent['threshold']:.2f} or high-recall watchlist "
-        f"{watchlist['threshold']:.2f} "
-        "includes risk tier, calibrated probability, engagement trajectory, assessment context, and top drivers."
+        "The advisor-facing output includes tier, calibrated probability, engagement trajectory, assessment context, "
+        "and top drivers."
     )
     _add_table(
         doc,
@@ -306,7 +335,7 @@ def write_word_report() -> Path:
         [
             ["Student", "S-10482"],
             ["Course", "DDD-2014J"],
-            ["Risk tier", "Urgent"],
+            ["Risk tier", "High-touch support queue"],
             ["Predicted risk", "78%"],
             [
                 "Why flagged",
@@ -314,7 +343,7 @@ def write_word_report() -> Path:
             ],
             [
                 "Suggested action",
-                "Send check-in within 48 hours. Ask about workload, access issues, and confidence with course material. Offer academic support session.",
+                "Prioritize for advisor outreach. Ask about workload, access issues, and confidence with course material. Offer academic support session.",
             ],
         ],
     )

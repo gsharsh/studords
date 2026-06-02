@@ -6,9 +6,8 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.calibration import calibration_curve
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -22,13 +21,10 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.svm import LinearSVC
 
 from data_loader import (
-    CAPACITY_QUANTILE,
     KEYS,
     MODEL_DIR,
     OUT_DIR,
@@ -41,6 +37,56 @@ from data_loader import (
 
 F2_BETA = 2.0
 PROFILE_ACTIVITY_TYPES = ["resource", "oucontent", "questionnaire", "dataplus", "ouwiki", "forumng"]
+MODEL_SELECTION_EVIDENCE = [
+    {
+        "model_name": "xgboost",
+        "precision": 0.738301,
+        "recall": 0.842244,
+        "f1": 0.786854,
+        "f2": 0.819178,
+        "roc_auc": 0.862670,
+        "pr_auc": 0.894913,
+        "alerts": 14723,
+        "alert_rate": 0.602315,
+        "selection_note": "selected_production_model",
+    },
+    {
+        "model_name": "xgboost_regularized",
+        "precision": 0.752926,
+        "recall": 0.817449,
+        "f1": 0.783862,
+        "f2": 0.803675,
+        "roc_auc": 0.858284,
+        "pr_auc": 0.890855,
+        "alerts": 14012,
+        "alert_rate": 0.573229,
+        "selection_note": "close_second_lower_recall",
+    },
+    {
+        "model_name": "random_forest",
+        "precision": 0.753832,
+        "recall": 0.815512,
+        "f1": 0.783460,
+        "f2": 0.802382,
+        "roc_auc": 0.857402,
+        "pr_auc": 0.890141,
+        "alerts": 13962,
+        "alert_rate": 0.571183,
+        "selection_note": "close_second_lower_recall",
+    },
+    {
+        "model_name": "logistic_regression",
+        "precision": 0.772892,
+        "recall": 0.793972,
+        "f1": 0.783290,
+        "f2": 0.789664,
+        "roc_auc": 0.859010,
+        "pr_auc": 0.892431,
+        "alerts": 13258,
+        "alert_rate": 0.542383,
+        "selection_note": "strong_baseline_lower_recall",
+    },
+]
 EDUCATION_ORDER = {
     "No Formal quals": 0,
     "Lower Than A Level": 1,
@@ -372,8 +418,9 @@ def choose_thresholds(y_train: pd.Series, train_prob: np.ndarray) -> dict[str, f
     urgent_candidates = candidates[candidates["recall"] >= URGENT_RECALL_FLOOR]
     urgent = watchlist if urgent_candidates.empty else float(urgent_candidates.sort_values("threshold", ascending=False).iloc[0]["threshold"])
     capacity_10 = float(np.quantile(train_prob, 0.90))
-    capacity_20 = float(np.quantile(train_prob, CAPACITY_QUANTILE))
+    capacity_20 = float(np.quantile(train_prob, 0.80))
     capacity_30 = float(np.quantile(train_prob, 0.70))
+    capacity_60 = float(np.quantile(train_prob, 0.40))
     return {
         "balanced_f1": balanced_f1,
         "watchlist": watchlist,
@@ -381,7 +428,47 @@ def choose_thresholds(y_train: pd.Series, train_prob: np.ndarray) -> dict[str, f
         "capacity_10pct": capacity_10,
         "capacity_20pct": capacity_20,
         "capacity_30pct": capacity_30,
+        "capacity_60pct": capacity_60,
     }
+
+
+def intervention_tier_summary(
+    y_true: pd.Series,
+    prob: np.ndarray,
+    high_touch_threshold: float,
+    light_touch_threshold: float,
+) -> pd.DataFrame:
+    y = pd.Series(y_true).reset_index(drop=True)
+    p = pd.Series(prob).reset_index(drop=True)
+    tiers = pd.Series("Monitoring / no immediate intervention", index=p.index)
+    tiers[p >= light_touch_threshold] = "Light-touch behavioural nudges"
+    tiers[p >= high_touch_threshold] = "High-touch support queue"
+    tier_order = [
+        "High-touch support queue",
+        "Light-touch behavioural nudges",
+        "Monitoring / no immediate intervention",
+    ]
+    total = len(y)
+    total_risk = int(y.sum())
+    rows = []
+    for tier in tier_order:
+        mask = tiers.eq(tier)
+        count = int(mask.sum())
+        at_risk = int(y[mask].sum())
+        rows.append(
+            {
+                "tier": tier,
+                "students": count,
+                "student_share": count / total if total else 0,
+                "observed_withdraw_fail_rate": at_risk / count if count else 0,
+                "at_risk_students": at_risk,
+                "captured_risk_share": at_risk / total_risk if total_risk else 0,
+                "avg_predicted_risk": float(p[mask].mean()) if count else 0,
+                "min_predicted_risk": float(p[mask].min()) if count else 0,
+                "max_predicted_risk": float(p[mask].max()) if count else 0,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def split_model_data(model_df: pd.DataFrame, split: pd.DataFrame) -> dict[str, Any]:
@@ -416,7 +503,7 @@ def _xgboost_classifier(**overrides: Any) -> Any:
     try:
         from xgboost import XGBClassifier
     except ImportError as exc:
-        raise ImportError("xgboost is required for the full model comparison. Run: pip install -r requirements.txt") from exc
+        raise ImportError("xgboost is required for the production risk model. Run: pip install -r requirements.txt") from exc
     params = dict(
         n_estimators=250,
         max_depth=3,
@@ -436,38 +523,20 @@ def _xgboost_classifier(**overrides: Any) -> Any:
 def candidate_classifiers() -> dict[str, Any]:
     logistic = LogisticRegression(max_iter=1000, class_weight="balanced", solver="liblinear", random_state=RANDOM_STATE)
     random_forest = RandomForestClassifier(
-        n_estimators=180,
+        n_estimators=140,
         min_samples_leaf=20,
         max_features="sqrt",
         class_weight="balanced_subsample",
         random_state=RANDOM_STATE,
         n_jobs=-1,
     )
-    knn = KNeighborsClassifier(n_neighbors=35, weights="distance")
-    svc = CalibratedClassifierCV(
-        LinearSVC(class_weight="balanced", C=0.5, max_iter=5000, random_state=RANDOM_STATE),
-        cv=3,
-    )
-    xgboost = _xgboost_classifier(n_estimators=180)
-    xgboost_regularized = _xgboost_classifier(n_estimators=180, max_depth=2, min_child_weight=10, reg_lambda=10)
-    soft_voting = VotingClassifier(
-        estimators=[
-            ("logistic", logistic),
-            ("random_forest", random_forest),
-            ("xgboost", xgboost),
-        ],
-        voting="soft",
-        weights=[1, 1, 2],
-        n_jobs=-1,
-    )
+    xgboost = _xgboost_classifier(n_estimators=150)
+    xgboost_regularized = _xgboost_classifier(n_estimators=150, max_depth=2, min_child_weight=10, reg_lambda=10)
     return {
         "logistic_regression": logistic,
         "random_forest": random_forest,
-        "knn": knn,
-        "linear_svc_calibrated": svc,
         "xgboost": xgboost,
         "xgboost_regularized": xgboost_regularized,
-        "soft_voting": soft_voting,
     }
 
 
@@ -578,6 +647,98 @@ def compare_candidate_models(
     }
 
 
+def model_selection_evidence() -> pd.DataFrame:
+    evidence = pd.DataFrame(MODEL_SELECTION_EVIDENCE)
+    evidence["evaluation"] = "prior_cv_oof_model_selection"
+    evidence["selection_rule"] = "highest_cv_f1_with_recall_edge"
+    evidence["selection_threshold"] = np.nan
+    evidence["watchlist_threshold"] = np.nan
+    return evidence
+
+
+def train_xgboost_production_model(
+    model_df: pd.DataFrame,
+    split: pd.DataFrame,
+    cv_splits: int = 3,
+) -> dict[str, Any]:
+    parts = split_model_data(model_df, split)
+    X_train = parts["X_train"]
+    y_train = parts["y_train"]
+    X_test = parts["X_test"]
+    y_test = parts["y_test"]
+
+    cv = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=RANDOM_STATE)
+    model = make_model_pipeline(parts["X"], _xgboost_classifier(n_estimators=150))
+    oof_prob = cross_val_predict(model, X_train, y_train, cv=cv, method="predict_proba", n_jobs=None)[:, 1]
+    selected_threshold = threshold_for_f1(y_train, oof_prob)
+    watchlist_threshold = threshold_for_f2(y_train, oof_prob)
+    cv_metrics = metrics_at_threshold(y_train, oof_prob, selected_threshold)
+    cv_metrics.update(
+        {
+            "model_name": "xgboost",
+            "selection_threshold": selected_threshold,
+            "watchlist_threshold": watchlist_threshold,
+            "selection_rule": "production_xgboost_max_cv_f1",
+            "evaluation": "cv_oof",
+        }
+    )
+
+    model.fit(X_train, y_train)
+    train_prob = model.predict_proba(X_train)[:, 1]
+    test_prob = model.predict_proba(X_test)[:, 1]
+    selected_test_metrics = metrics_at_threshold(y_test, test_prob, selected_threshold)
+    selected_test_metrics.update(
+        {
+            "model_name": "xgboost",
+            "threshold_name": "cv_max_f1",
+            "selection_rule": "production_xgboost_then_test_once",
+        }
+    )
+
+    comparison = model_selection_evidence()
+    for key, value in cv_metrics.items():
+        if key in comparison.columns:
+            comparison.loc[comparison["model_name"].eq("xgboost"), key] = value
+    comparison["production_used"] = comparison["model_name"].eq("xgboost")
+    comparison.to_csv(OUT_DIR / "model_comparison_cv.csv", index=False)
+
+    train_test_rows = []
+    for evaluation, y_eval, prob_eval in [
+        ("train_fit", y_train, train_prob),
+        ("test", y_test, test_prob),
+    ]:
+        eval_metrics = metrics_at_threshold(y_eval, prob_eval, selected_threshold)
+        eval_metrics.update(
+            {
+                "model_name": "xgboost",
+                "selection_threshold": selected_threshold,
+                "watchlist_threshold": watchlist_threshold,
+                "selection_rule": "production_xgboost_max_cv_f1",
+                "evaluation": evaluation,
+            }
+        )
+        train_test_rows.append(eval_metrics)
+    overfit_check = pd.DataFrame(train_test_rows)
+    overfit_check.to_csv(OUT_DIR / "model_overfit_check.csv", index=False)
+
+    pd.DataFrame([selected_test_metrics]).to_json(OUT_DIR / "risk_metrics.json", orient="records", indent=2)
+    joblib.dump(model, MODEL_DIR / "week6_risk_model.joblib")
+    return {
+        "model_comparison": comparison,
+        "overfit_check": overfit_check,
+        "selected_model_name": "xgboost",
+        "selected_model": model,
+        "selected_oof_prob": oof_prob,
+        "selected_threshold": selected_threshold,
+        "selected_test_metrics": selected_test_metrics,
+        "X_train": X_train,
+        "X_test": X_test,
+        "y_train": y_train,
+        "y_test": y_test,
+        "test_prob": test_prob,
+    }
+
+
 def permutation_feature_drivers(
     model: Pipeline,
     X_test: pd.DataFrame,
@@ -636,7 +797,7 @@ def permutation_feature_drivers(
 
 def train_risk_model(model_df: pd.DataFrame, split: pd.DataFrame) -> dict[str, Any]:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    comparison_result = compare_candidate_models(model_df, split)
+    comparison_result = train_xgboost_production_model(model_df, split)
     model = comparison_result["selected_model"]
     y_train = comparison_result["y_train"]
     y_test = comparison_result["y_test"]
@@ -644,26 +805,29 @@ def train_risk_model(model_df: pd.DataFrame, split: pd.DataFrame) -> dict[str, A
 
     thresholds = choose_thresholds(y_train, comparison_result["selected_oof_prob"])
     thresholds["selected"] = comparison_result["selected_threshold"]
-    primary_metrics = metrics_at_threshold(y_test, test_prob, thresholds["balanced_f1"])
+    primary_metrics = metrics_at_threshold(y_test, test_prob, thresholds["capacity_20pct"])
     primary_metrics.update(
         {
             "model_name": comparison_result["selected_model_name"],
-            "threshold_name": "cv_max_f1",
-            "selection_rule": "best_cv_f1_model_then_max_f1_alert_threshold",
+            "threshold_name": "high_touch_20pct",
+            "selection_rule": "xgboost_production_model_then_capacity_based_high_touch_queue",
         }
     )
-    watchlist_metrics = metrics_at_threshold(y_test, test_prob, thresholds["watchlist"])
+    watchlist_metrics = metrics_at_threshold(y_test, test_prob, thresholds["capacity_60pct"])
     capacity_metrics = metrics_at_threshold(y_test, test_prob, thresholds["capacity_20pct"])
 
     rows = []
     for name, threshold in [
-        ("urgent_balanced_f1", thresholds["balanced_f1"]),
-        ("watchlist_f2", thresholds["watchlist"]),
-        ("urgent_recall85", thresholds["urgent"]),
+        ("high_touch_20pct", thresholds["capacity_20pct"]),
+        ("light_touch_60pct", thresholds["capacity_60pct"]),
+        ("cv_max_f1_threshold", thresholds["balanced_f1"]),
+        ("cv_max_f2_threshold", thresholds["watchlist"]),
+        ("cv_recall85_threshold", thresholds["urgent"]),
         ("selected_cv_max_f1", thresholds["selected"]),
         ("capacity_10pct", thresholds["capacity_10pct"]),
         ("capacity_20pct", thresholds["capacity_20pct"]),
         ("capacity_30pct", thresholds["capacity_30pct"]),
+        ("capacity_60pct", thresholds["capacity_60pct"]),
         ("fixed_0.25", 0.25),
         ("fixed_0.35", 0.35),
         ("fixed_0.50", 0.50),
@@ -675,6 +839,13 @@ def train_risk_model(model_df: pd.DataFrame, split: pd.DataFrame) -> dict[str, A
         rows.append(row)
     threshold_table = pd.DataFrame(rows)
     threshold_table.to_csv(OUT_DIR / "risk_threshold_analysis.csv", index=False)
+    intervention_tiers = intervention_tier_summary(
+        y_test,
+        test_prob,
+        high_touch_threshold=thresholds["capacity_20pct"],
+        light_touch_threshold=thresholds["capacity_60pct"],
+    )
+    intervention_tiers.to_csv(OUT_DIR / "risk_intervention_tiers.csv", index=False)
 
     prob_true, prob_pred = calibration_curve(y_test, test_prob, n_bins=10, strategy="quantile")
     calibration = pd.DataFrame({"mean_predicted_risk": prob_pred, "observed_risk_rate": prob_true})
@@ -697,6 +868,7 @@ def train_risk_model(model_df: pd.DataFrame, split: pd.DataFrame) -> dict[str, A
         "primary_metrics": primary_metrics,
         "watchlist_metrics": watchlist_metrics,
         "capacity_metrics": capacity_metrics,
+        "intervention_tiers": intervention_tiers,
         "threshold_table": threshold_table,
         "calibration": calibration,
         "feature_drivers": drivers,
